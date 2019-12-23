@@ -28,16 +28,18 @@ fn crypt(message: &str) -> BigInt {
 }
 
 fn decrypt(cipher: BigInt) -> String {
-    let letters: Vec<usize> = factors(&cipher)
+    // obtiene la frecuencia de cada factor primo
+    let freqs : Vec<usize> = factors(&cipher)
         .iter()
         .group_by(|&x| x)
         .into_iter()
         .map(|(_, g)| g.count())
         .collect();
-    letters
+    // mapea las frecuencias a caracteres y devuelve el string resultante
+    freqs
         .iter()
         .map(|&u| char::from(b'a' + u as u8 - 1))
-        .collect::<String>()
+        .collect()
 }
 
 pub fn factors(n: &BigInt) -> Vec<BigInt> {
