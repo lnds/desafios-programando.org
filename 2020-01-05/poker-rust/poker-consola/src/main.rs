@@ -75,7 +75,7 @@ fn cambiar_cartas(mano: &mut Mano, naipes: &mut Baraja) {
             5,
         );
         if carta == 0 {
-            return
+            return;
         }
         if let Some(naipe) = naipes.tomar() {
             mano.cambiar((carta - 1) as usize, naipe);
@@ -92,7 +92,12 @@ fn ingresar_apuesta(pozo: i32) -> Result<Accion, Error> {
         return Err(Error::Bancarrota);
     }
     println!("Tu pozo es: {}", pozo);
-    println!("{}:", "Ingresa el monto de tu apuesta (o escribe salir)".yellow().bold());
+    println!(
+        "{}:",
+        "Ingresa el monto de tu apuesta (o escribe salir)"
+            .yellow()
+            .bold()
+    );
     let mut accion = String::new();
     match io::stdin().read_line(&mut accion) {
         Ok(_) => match accion.to_lowercase().trim() {

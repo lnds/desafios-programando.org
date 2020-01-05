@@ -59,19 +59,19 @@ pub enum Color {
 
 #[derive(Clone, Debug, IntoEnumIterator, PartialEq, Eq, PartialOrd, Ord, Copy)]
 pub enum Orden {
-    As = 14,
-    Dos = 2,
-    Tres = 3,
-    Cuatro = 4,
-    Cinco = 5,
-    Seis = 6,
-    Siete = 7,
-    Ocho = 8,
-    Nueve = 9,
-    Diez = 10,
-    Jack = 11,
-    Queen = 12,
-    King = 13,
+    As,
+    Dos,
+    Tres,
+    Cuatro,
+    Cinco,
+    Seis,
+    Siete,
+    Ocho,
+    Nueve,
+    Diez,
+    Jack,
+    Queen,
+    King,
 }
 
 impl Orden {
@@ -248,7 +248,7 @@ impl Mano {
 impl fmt::Display for Mano {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for (i, carta) in self.0.iter().enumerate() {
-            let _ = write!(f, "{}:{} ", i+1, carta);
+            let _ = write!(f, "{}:{} ", i + 1, carta);
         }
         write!(f, " ")
     }
