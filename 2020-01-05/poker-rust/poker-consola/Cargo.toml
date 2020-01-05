@@ -1,0 +1,12 @@
+[package]
+name = "poker-consola"
+version = "0.1.0"
+authors = ["Eduardo Díaz <ediaz@dcc8090.cl>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+cartas = { path = "../cartas" }
+colored = "1.9.1"
