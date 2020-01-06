@@ -91,7 +91,7 @@ fn ingresar_apuesta(pozo: i32) -> Result<Accion, Error> {
         println!("Ya no tienes dinero");
         return Err(Error::Bancarrota);
     }
-    println!("Tu pozo es: {}", pozo);
+    println!("Tu pozo es: ${}\n", pozo);
     println!(
         "{}:",
         "Ingresa el monto de tu apuesta (o escribe salir)"
