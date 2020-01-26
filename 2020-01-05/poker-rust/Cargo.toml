@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+	"poker",
 	"cartas",
 	"poker-consola",
 ]
