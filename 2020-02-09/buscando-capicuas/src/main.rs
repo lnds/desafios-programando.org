@@ -1,14 +1,10 @@
 fn main() {
-    let days = vec![0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days1 = vec![0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let days2 = vec![0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     for year in 1..10_000 {
-        for month in 1..=12 {
-            let days_in_month = if month == 2 && is_leap(year) {
-                days[month] + 1
-            } else {
-                days[month]
-            };
-            for day in 1..=days_in_month {
-                if check_zero_filled(year, month, day) {
+        for (month, days) in (if is_leap(year) { &days1 } else { &days2 }).iter().enumerate().take(12+1).skip(1) {
+            for day in 1..=*days {
+                if check_zero_filled(year, month, day as usize) {
                     println!(
                         "year={}, month={}, day={}, f1: {}, f2: {}, f3: {}",
                         year,
@@ -16,10 +12,10 @@ fn main() {
                         day,
                         format_date_1(year, month, day),
                         format_date_2(year, month, day),
-                        format_date_1(year, day, month)
+                        format_date_1(year, day as usize, month)
                     );
                 }
-                if check_unfilled(year, month, day) {
+                else if check_unfilled(year, month, day) {
                     println!(
                         "year={}, month={}, day={} f1: {}, f2: {}, f3: {}",
                         year,
@@ -66,8 +62,6 @@ fn check_unfilled(year: usize, month: usize, day: usize) -> bool {
     }
     false
 }
-
-
 
 fn format_date_1(year: usize, month: usize, day: usize) -> String {
     if year < 100 {
