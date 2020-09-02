@@ -8,3 +8,5 @@ edition = "2018"
 
 [dependencies]
 byteorder = "1.3.4"
+packed_struct = "0.3"
+packed_struct_codegen = "0.3"

@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt};
+use std::io::Read;
 
 pub type Error = Box<dyn std::error::Error>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -21,7 +22,7 @@ impl BytePacketBuffer {
     }
 
     /// Current position within buffer
-    fn pos(&self) -> usize {
+    pub fn pos(&self) -> usize {
         self.pos
     }
 
@@ -46,11 +47,18 @@ impl BytePacketBuffer {
     }
 
     /// Get a range of bytes
-    fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8]> {
+    pub fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8]> {
         if start + len >= PACKET_SIZE {
             return Err("End of buffer".into());
         }
         Ok(&self.buf[start..start + len as usize])
+    }
+
+    pub fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
+        let mut data = &self.buf[self.pos..];
+        data.read_exact(buf)?;
+        self.pos += buf.len();
+        Ok(())
     }
 
     /// Read two bytes, stepping two steps forward
@@ -74,7 +82,9 @@ impl BytePacketBuffer {
     /// The tricky part: Reading domain names, taking labels into consideration.
     /// Will take something like [3]www[6]google[3]com[0] and append
     /// www.google.com to outstr.
-    pub fn read_qname(&mut self, outstr: &mut String) -> Result<()> {
+    pub fn read_qname(&mut self) -> Result<String> {
+        let mut parts = vec![];
+
         // Since we might encounter jumps, we'll keep track of our position
         // locally as opposed to using the position within the struct. This
         // allows us to move the shared position to a point past our current
@@ -82,35 +92,22 @@ impl BytePacketBuffer {
         // using this variable.
         let mut pos = self.pos();
 
-        // track whether or not we've jumped
-        let mut jumped = false;
         const MAX_JUMPS: i32 = 5;
         let mut jumps_performed = 0;
 
         // Our delimiter which we append for each label. Since we don't want a
         // dot at the beginning of the domain name we'll leave it empty for now
         // and set it to "." at the end of the first iteration.
-        let mut delim = "";
 
-        loop {
-            // Dns Packets are untrusted data, so we need to be paranoid. Someone
-            // can craft a packet with a cycle in the jump instructions. This guards
-            // against such packets.
-            if jumps_performed > MAX_JUMPS {
-                return Err(format!("Limit of {} jumps exceeded", MAX_JUMPS).into());
-            }
+        let mut len = self.get(pos)?;
 
-            let len = self.get(pos)?;
-
-            // At this point, we're always at the beginning of a label. Recall
-            // that labels start with a length byte.
-
+        while len > 0 && jumps_performed <= MAX_JUMPS {
             // If len has the two most significant bit are set, it represents a
             // jump to some other offset in the packet:
             if (len & 0xC0) == 0xC0 {
                 // Update the buffer position to a point past the current
                 // label. We don't need to touch it any further.
-                if !jumped {
+                if jumps_performed == 0 {
                     self.seek(pos + 2)?;
                 }
 
@@ -120,42 +117,35 @@ impl BytePacketBuffer {
                 let offset = (((len as u16) ^ 0xC0) << 8) | b2;
                 pos = offset as usize;
 
-                // Indicate that a jump was performed.
-                jumped = true;
                 jumps_performed += 1;
-            }
-            // The base scenario, where we're reading a single label and
-            // appending it to the output:
-            else {
+            } else {
+                // The base scenario, where we're reading a single label and
+                // appending it to the output:
                 // Move a single byte forward to move past the length byte.
                 pos += 1;
-
-                // Domain names are terminated by an empty label of length 0,
-                // so if the length is zero we're done.
-                if len == 0 {
-                    break;
-                }
-
-                // Append the delimiter to our output buffer first.
-                outstr.push_str(delim);
 
                 // Extract the actual ASCII bytes for this label and append them
                 // to the output buffer.
                 let str_buffer = self.get_range(pos, len as usize)?;
-                outstr.push_str(&String::from_utf8_lossy(str_buffer).to_lowercase());
-
-                delim = ".";
+                parts.push(String::from_utf8_lossy(str_buffer).to_lowercase());
 
                 // Move forward the full length of the label.
                 pos += len as usize;
             }
+            len = self.get(pos)?;
         }
 
-        if !jumped {
-            self.seek(pos)?;
+        // Dns Packets are untrusted data, so we need to be paranoid. Someone
+        // can craft a packet with a cycle in the jump instructions. This guards
+        // against such packets.
+        if jumps_performed > MAX_JUMPS {
+            return Err(format!("Limit of {} jumps exceeded", MAX_JUMPS).into());
+        }
+        if jumps_performed == 0 {
+            self.seek(pos + 1)?;
         }
 
-        Ok(())
+        Ok(parts.join("."))
     }
 }
 

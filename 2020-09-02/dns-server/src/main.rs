@@ -1,3 +1,6 @@
+extern crate packed_struct;
+#[macro_use]
+extern crate packed_struct_codegen;
 mod packet;
 mod protocol;
 
