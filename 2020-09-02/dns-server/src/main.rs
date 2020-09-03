@@ -132,7 +132,6 @@ fn recursive_lookup(qname: &str, qtype: QueryType) -> Result<DnsPacket> {
 }
 
 fn lookup(qname: &str, qtype: QueryType, server: (Ipv4Addr, u16)) -> Result<DnsPacket> {
-    println!("lookup {:?}", server);
     let socket = UdpSocket::bind(("0.0.0.0", 43210))?;
 
     let mut packet = DnsPacket::new();
@@ -146,17 +145,12 @@ fn lookup(qname: &str, qtype: QueryType, server: (Ipv4Addr, u16)) -> Result<DnsP
 
     let mut req_buffer = BytePacketBuffer::new();
     packet.write(&mut req_buffer)?;
-    println!("sendto");
-
-    println!("!{:x?}", req_buffer.buf.to_vec());
 
     socket.send_to(&req_buffer.buf[0..req_buffer.pos], server)?;
 
     let mut res_buffer = BytePacketBuffer::new();
-    println!("recv");
 
     socket.recv_from(&mut res_buffer.buf)?;
-    println!("received");
 
     DnsPacket::read(&mut res_buffer)
 }
