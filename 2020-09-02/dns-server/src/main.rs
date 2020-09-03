@@ -4,24 +4,137 @@ extern crate packed_struct_codegen;
 mod packet;
 mod protocol;
 
-use crate::protocol::{DnsPacket, DnsQuestion, QueryType};
+use crate::protocol::{DnsPacket, DnsQuestion, QueryType, ResultCode};
 use packet::{BytePacketBuffer, Result};
-use std::net::UdpSocket;
+use std::net::{Ipv4Addr, UdpSocket};
 
 #[allow(clippy::unused_io_amount)]
 fn main() -> Result<()> {
-    // Perform an A query for google.com
-    let qname = "www.yahoo.com";
-    let qtype = QueryType::A;
+    // Bind an UDP socket on port 2053
+    let socket = UdpSocket::bind(("0.0.0.0", 2053))?;
 
-    // Using googles public DNS server
-    let server = ("8.8.8.8", 53);
+    // For now, queries are handled sequentially, so an infinite loop for servicing
+    // requests is initiated.
+    loop {
+        match handle_query(&socket) {
+            Ok(_) => {}
+            Err(e) => eprintln!("An error occured: {}", e),
+        }
+    }
+}
 
-    // Bind a UDP socket to an arbitrary port
+// Handle a single incoming packet
+fn handle_query(socket: &UdpSocket) -> Result<()> {
+    let mut req_buffer = BytePacketBuffer::new();
+    let (_, src) = socket.recv_from(&mut req_buffer.buf)?;
+    let mut request = DnsPacket::read(&mut req_buffer)?;
+
+    // Create and initialize the response packet
+    let mut packet = DnsPacket::new();
+    packet.header.id = request.header.id;
+    packet.header.recursion_desired = true;
+    packet.header.recursion_available = true;
+    packet.header.response = true;
+
+    // In the normal case, exactly one question is present
+    if let Some(question) = request.questions.pop() {
+        println!("Received query: {:?}", question);
+
+        if let Ok(result) = recursive_lookup(&question.name, question.qtype) {
+            packet.questions.push(question);
+            packet.header.rescode = result.header.rescode;
+
+            for rec in result.answers {
+                println!("Answer: {:?}", rec);
+                packet.answers.push(rec);
+            }
+            for rec in result.authorities {
+                println!("Authority: {:?}", rec);
+                packet.authorities.push(rec);
+            }
+            for rec in result.resources {
+                println!("Resource: {:?}", rec);
+                packet.resources.push(rec);
+            }
+        } else {
+            packet.header.rescode = ResultCode::SERVFAIL.into();
+        }
+    } else {
+        packet.header.rescode = ResultCode::FORMERR.into();
+    }
+
+    // The only thing remaining is to encode our response and send it off!
+    let mut res_buffer = BytePacketBuffer::new();
+    packet.write(&mut res_buffer)?;
+
+    let len = res_buffer.pos();
+    let data = res_buffer.get_range(0, len)?;
+
+    socket.send_to(data, src)?;
+
+    Ok(())
+}
+
+fn recursive_lookup(qname: &str, qtype: QueryType) -> Result<DnsPacket> {
+    // For now we're always starting with *a.root-servers.net*.
+    let mut ns = "198.41.0.4".parse::<Ipv4Addr>().unwrap();
+
+    // Since it might take an arbitrary number of steps, we enter an unbounded loop.
+    loop {
+        println!("attempting lookup of {:?} {} with ns {}", qtype, qname, ns);
+
+        // The next step is to send the query to the active server.
+        let ns_copy = ns;
+
+        let server = (ns_copy, 53);
+        let response = lookup(qname, qtype, server)?;
+
+        // If there are entries in the answer section, and no errors, we are done!
+        if !response.answers.is_empty() && response.header.rescode == ResultCode::NOERROR.into() {
+            return Ok(response);
+        }
+
+        // We might also get a `NXDOMAIN` reply, which is the authoritative name servers
+        // way of telling us that the name doesn't exist.
+        if response.header.rescode == ResultCode::NXDOMAIN.into() {
+            return Ok(response);
+        }
+
+        // Otherwise, we'll try to find a new nameserver based on NS and a corresponding A
+        // record in the additional section. If this succeeds, we can switch name server
+        // and retry the loop.
+        if let Some(new_ns) = response.get_resolved_ns(qname) {
+            ns = new_ns;
+
+            continue;
+        }
+
+        // If not, we'll have to resolve the ip of a NS record. If no NS records exist,
+        // we'll go with what the last server told us.
+        let new_ns_name = match response.get_unresolved_ns(qname) {
+            Some(x) => x,
+            None => return Ok(response),
+        };
+
+        // Here we go down the rabbit hole by starting _another_ lookup sequence in the
+        // midst of our current one. Hopefully, this will give us the IP of an appropriate
+        // name server.
+        let recursive_response = recursive_lookup(&new_ns_name, QueryType::A)?;
+
+        // Finally, we pick a random ip from the result, and restart the loop. If no such
+        // record is available, we again return the last result we got.
+        if let Some(new_ns) = recursive_response.get_random_a() {
+            ns = new_ns;
+        } else {
+            return Ok(response);
+        }
+    }
+}
+
+fn lookup(qname: &str, qtype: QueryType, server: (Ipv4Addr, u16)) -> Result<DnsPacket> {
+    println!("lookup {:?}", server);
     let socket = UdpSocket::bind(("0.0.0.0", 43210))?;
 
-    // Build our query packet. It's important that we remember to set the
-    // `recursion_desired` flag. As noted earlier, the packet id is arbitrary.
     let mut packet = DnsPacket::new();
 
     packet.header.id = 6666;
@@ -31,41 +144,19 @@ fn main() -> Result<()> {
         .questions
         .push(DnsQuestion::new(qname.to_string(), qtype));
 
-    // Use our new write method to write the packet to a buffer...
     let mut req_buffer = BytePacketBuffer::new();
-    println!("about to write...");
     packet.write(&mut req_buffer)?;
-    println!("{:?}", packet);
-    println!("about to send... {}", req_buffer.pos);
+    println!("sendto");
 
-    // ...and send it off to the server using our socket:
-    let sent = socket.send_to(&req_buffer.buf[0..req_buffer.pos], server)?;
+    println!("!{:x?}", req_buffer.buf.to_vec());
 
-    println!("sent {}...", sent);
-    // To prepare for receiving the response, we'll create a new `BytePacketBuffer`,
-    // and ask the socket to write the response directly into our buffer.
+    socket.send_to(&req_buffer.buf[0..req_buffer.pos], server)?;
+
     let mut res_buffer = BytePacketBuffer::new();
-    println!("about to recv...");
+    println!("recv");
 
-    let read = socket.recv_from(&mut res_buffer.buf)?;
-    println!("buf {:?}", read);
-    // As per the previous section, `DnsPacket::from_buffer()` is then used to
-    // actually parse the packet after which we can print the response.
-    let res_packet = DnsPacket::read(&mut res_buffer)?;
-    println!("{:#?}", res_packet.header);
+    socket.recv_from(&mut res_buffer.buf)?;
+    println!("received");
 
-    for q in res_packet.questions {
-        println!("{:#?}", q);
-    }
-    for rec in res_packet.answers {
-        println!("{:#?}", rec);
-    }
-    for rec in res_packet.authorities {
-        println!("{:#?}", rec);
-    }
-    for rec in res_packet.resources {
-        println!("{:#?}", rec);
-    }
-
-    Ok(())
+    DnsPacket::read(&mut res_buffer)
 }

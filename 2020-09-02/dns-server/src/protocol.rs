@@ -18,47 +18,34 @@ pub enum ResultCode {
 #[packed_struct(bit_numbering = "msb0")]
 pub struct DnsHeader {
     #[packed_field(bits = "0..=15", endian = "msb")]
-    pub id: u16,
-    // 16 bits
-    #[packed_field(bits = "31")]
-    pub recursion_desired: bool,
-    // 1 bit
-    #[packed_field(bits = "30")]
-    pub truncated_message: bool,
-    // 1 bit
-    #[packed_field(bits = "29")]
-    pub authoritative_answer: bool,
-    // 1 bit
-    #[packed_field(bits = "25..=28")]
-    pub opcode: Integer<u8, packed_bits::Bits4>,
-    // 4 bits
-    #[packed_field(bits = "24")]
-    pub response: bool,
-    // 1 bit
-    #[packed_field(bits = "20..23", ty = "enum")]
-    pub rescode: EnumCatchAll<ResultCode>,
-    // 4 bits
-    #[packed_field(bits = "19")]
-    pub checking_disabled: bool,
-    // 1 bit
-    #[packed_field(bits = "18")]
-    pub authed_data: bool,
-    // 1 bit
-    #[packed_field(bits = "17")]
-    pub z: bool,
-    // 1 bit
+    pub id: u16, // 16 bits
     #[packed_field(bits = "16")]
-    pub recursion_available: bool,
-    // 1 bit
+    pub response: bool, // 1 bit
+    #[packed_field(bits = "17..=20")]
+    pub opcode: Integer<u8, packed_bits::Bits4>, // 4 bits
+    #[packed_field(bits = "21")]
+    pub authoritative_answer: bool, // 1 bit
+    #[packed_field(bits = "22")]
+    pub truncated_message: bool, // 1 bit
+    #[packed_field(bits = "23")]
+    pub recursion_desired: bool, // 1 bit
+    #[packed_field(bits = "24")]
+    pub recursion_available: bool, // 1 bit
+    #[packed_field(bits = "25")]
+    pub z: bool, // 1 bit
+    #[packed_field(bits = "26")]
+    pub checking_disabled: bool, // 1 bit
+    #[packed_field(bits = "27")]
+    pub authed_data: bool, // 1 bit
+    #[packed_field(bits = "28..31", ty = "enum")]
+    pub rescode: EnumCatchAll<ResultCode>, // 4 bits
+
     #[packed_field(bits = "32..=47", endian = "msb")]
-    pub questions: u16,
-    // 16 bits
+    pub questions: u16, // 16 bits
     #[packed_field(bits = "48..=63", endian = "msb")]
-    pub answers: u16,
-    // 16 bits
+    pub answers: u16, // 16 bits
     #[packed_field(bits = "64..=79", endian = "msb")]
-    pub authoritative_entries: u16,
-    // 16 bits
+    pub authoritative_entries: u16, // 16 bits
     #[packed_field(bits = "80..=95", endian = "msb")]
     pub resource_entries: u16, // 16 bits
 }
@@ -429,5 +416,70 @@ impl DnsPacket {
         }
 
         Ok(())
+    }
+
+    /// It's useful to be able to pick a random A record from a packet. When we
+    /// get multiple IP's for a single name, it doesn't matter which one we
+    /// choose, so in those cases we can now pick one at random.
+    pub fn get_random_a(&self) -> Option<Ipv4Addr> {
+        self.answers
+            .iter()
+            .filter_map(|record| match record {
+                DnsRecord::A { addr, .. } => Some(*addr),
+                _ => None,
+            })
+            .next()
+    }
+
+    /// A helper function which returns an iterator over all name servers in
+    /// the authorities section, represented as (domain, host) tuples
+    fn get_ns<'a>(&'a self, qname: &'a str) -> impl Iterator<Item = (&'a str, &'a str)> {
+        self.authorities
+            .iter()
+            // In practice, these are always NS records in well formed packages.
+            // Convert the NS records to a tuple which has only the data we need
+            // to make it easy to work with.
+            .filter_map(|record| match record {
+                DnsRecord::NS { domain, host, .. } => Some((domain.as_str(), host.as_str())),
+                _ => None,
+            })
+            // Discard servers which aren't authoritative to our query
+            .filter(move |(domain, _)| qname.ends_with(*domain))
+    }
+
+    /// We'll use the fact that name servers often bundle the corresponding
+    /// A records when replying to an NS query to implement a function that
+    /// returns the actual IP for an NS record if possible.
+    pub fn get_resolved_ns(&self, qname: &str) -> Option<Ipv4Addr> {
+        // Get an iterator over the nameservers in the authorities section
+        self.get_ns(qname)
+            // Now we need to look for a matching A record in the additional
+            // section. Since we just want the first valid record, we can just
+            // build a stream of matching records.
+            .flat_map(|(_, host)| {
+                self.resources
+                    .iter()
+                    // Filter for A records where the domain match the host
+                    // of the NS record that we are currently processing
+                    .filter_map(move |record| match record {
+                        DnsRecord::A { domain, addr, .. } if domain == host => Some(addr),
+                        _ => None,
+                    })
+            })
+            .map(|addr| *addr)
+            // Finally, pick the first valid entry
+            .next()
+    }
+
+    /// However, not all name servers are as that nice. In certain cases there won't
+    /// be any A records in the additional section, and we'll have to perform *another*
+    /// lookup in the midst. For this, we introduce a method for returning the host
+    /// name of an appropriate name server.
+    pub fn get_unresolved_ns<'a>(&'a self, qname: &'a str) -> Option<&'a str> {
+        // Get an iterator over the nameservers in the authorities section
+        self.get_ns(qname)
+            .map(|(_, host)| host)
+            // Finally, pick the first valid entry
+            .next()
     }
 }
