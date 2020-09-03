@@ -2,7 +2,7 @@ use crate::packed_struct::PackedStruct;
 
 use crate::packet::{BytePacketBuffer, Result};
 use packed_struct::prelude::*;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(PrimitiveEnum_u8, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultCode {
@@ -18,33 +18,47 @@ pub enum ResultCode {
 #[packed_struct(bit_numbering = "msb0")]
 pub struct DnsHeader {
     #[packed_field(bits = "0..=15", endian = "msb")]
-    pub id: u16, // 16 bits
+    pub id: u16,
+    // 16 bits
     #[packed_field(bits = "31")]
-    pub recursion_desired: bool, // 1 bit
+    pub recursion_desired: bool,
+    // 1 bit
     #[packed_field(bits = "30")]
-    pub truncated_message: bool, // 1 bit
+    pub truncated_message: bool,
+    // 1 bit
     #[packed_field(bits = "29")]
-    pub authoritative_answer: bool, // 1 bit
+    pub authoritative_answer: bool,
+    // 1 bit
     #[packed_field(bits = "25..=28")]
-    pub opcode: Integer<u8, packed_bits::Bits4>, // 4 bits
+    pub opcode: Integer<u8, packed_bits::Bits4>,
+    // 4 bits
     #[packed_field(bits = "24")]
-    pub response: bool, // 1 bit
+    pub response: bool,
+    // 1 bit
     #[packed_field(bits = "20..23", ty = "enum")]
-    pub rescode: EnumCatchAll<ResultCode>, // 4 bits
+    pub rescode: EnumCatchAll<ResultCode>,
+    // 4 bits
     #[packed_field(bits = "19")]
-    pub checking_disabled: bool, // 1 bit
+    pub checking_disabled: bool,
+    // 1 bit
     #[packed_field(bits = "18")]
-    pub authed_data: bool, // 1 bit
+    pub authed_data: bool,
+    // 1 bit
     #[packed_field(bits = "17")]
-    pub z: bool, // 1 bit
+    pub z: bool,
+    // 1 bit
     #[packed_field(bits = "16")]
-    pub recursion_available: bool, // 1 bit
+    pub recursion_available: bool,
+    // 1 bit
     #[packed_field(bits = "32..=47", endian = "msb")]
-    pub questions: u16, // 16 bits
+    pub questions: u16,
+    // 16 bits
     #[packed_field(bits = "48..=63", endian = "msb")]
-    pub answers: u16, // 16 bits
+    pub answers: u16,
+    // 16 bits
     #[packed_field(bits = "64..=79", endian = "msb")]
-    pub authoritative_entries: u16, // 16 bits
+    pub authoritative_entries: u16,
+    // 16 bits
     #[packed_field(bits = "80..=95", endian = "msb")]
     pub resource_entries: u16, // 16 bits
 }
@@ -71,7 +85,15 @@ impl DnsHeader {
 #[derive(PartialEq, Eq, Debug, Clone, Hash, Copy)]
 pub enum QueryType {
     UNKNOWN(u16),
-    A, // 1
+    A,
+    // 1
+    NS,
+    // 2
+    CNAME,
+    // 5
+    MX,
+    // 15
+    AAAA, // 28
 }
 
 impl QueryType {
@@ -79,12 +101,20 @@ impl QueryType {
         match *self {
             QueryType::UNKNOWN(x) => x,
             QueryType::A => 1,
+            QueryType::NS => 2,
+            QueryType::CNAME => 5,
+            QueryType::MX => 15,
+            QueryType::AAAA => 28,
         }
     }
 
     pub fn from_num(num: u16) -> QueryType {
         match num {
             1 => QueryType::A,
+            2 => QueryType::NS,
+            5 => QueryType::CNAME,
+            15 => QueryType::MX,
+            28 => QueryType::AAAA,
             _ => QueryType::UNKNOWN(num),
         }
     }
@@ -132,7 +162,32 @@ pub enum DnsRecord {
         domain: String,
         addr: Ipv4Addr,
         ttl: u32,
-    }, // 1
+    },
+    // 1
+    NS {
+        domain: String,
+        host: String,
+        ttl: u32,
+    },
+    // 2
+    CNAME {
+        domain: String,
+        host: String,
+        ttl: u32,
+    },
+    // 5
+    MX {
+        domain: String,
+        priority: u16,
+        host: String,
+        ttl: u32,
+    },
+    // 15
+    AAAA {
+        domain: String,
+        addr: Ipv6Addr,
+        ttl: u32,
+    }, // 28
 }
 
 impl DnsRecord {
@@ -156,6 +211,44 @@ impl DnsRecord {
                 );
 
                 Ok(DnsRecord::A { domain, addr, ttl })
+            }
+            QueryType::AAAA => {
+                let raw_addr1 = buffer.read_u32()?;
+                let raw_addr2 = buffer.read_u32()?;
+                let raw_addr3 = buffer.read_u32()?;
+                let raw_addr4 = buffer.read_u32()?;
+                let addr = Ipv6Addr::new(
+                    ((raw_addr1 >> 16) & 0xFFFF) as u16,
+                    (raw_addr1 & 0xFFFF) as u16,
+                    ((raw_addr2 >> 16) & 0xFFFF) as u16,
+                    (raw_addr2 & 0xFFFF) as u16,
+                    ((raw_addr3 >> 16) & 0xFFFF) as u16,
+                    (raw_addr3 & 0xFFFF) as u16,
+                    ((raw_addr4 >> 16) & 0xFFFF) as u16,
+                    (raw_addr4 & 0xFFFF) as u16,
+                );
+
+                Ok(DnsRecord::AAAA { domain, addr, ttl })
+            }
+            QueryType::NS => {
+                let host = buffer.read_qname()?;
+                Ok(DnsRecord::NS { domain, host, ttl })
+            }
+            QueryType::CNAME => {
+                let host = buffer.read_qname()?;
+
+                Ok(DnsRecord::CNAME { domain, host, ttl })
+            }
+            QueryType::MX => {
+                let priority = buffer.read_u16()?;
+                let host = buffer.read_qname()?;
+
+                Ok(DnsRecord::MX {
+                    domain,
+                    priority,
+                    host,
+                    ttl,
+                })
             }
             QueryType::UNKNOWN(_) => {
                 buffer.step(data_len as usize)?;
@@ -190,6 +283,77 @@ impl DnsRecord {
                 buffer.write_u8(octets[1])?;
                 buffer.write_u8(octets[2])?;
                 buffer.write_u8(octets[3])?;
+            }
+            DnsRecord::NS {
+                ref domain,
+                ref host,
+                ttl,
+            } => {
+                buffer.write_qname(domain)?;
+                buffer.write_u16(QueryType::NS.to_num())?;
+                buffer.write_u16(1)?;
+                buffer.write_u32(ttl)?;
+
+                let pos = buffer.pos();
+                buffer.write_u16(0)?;
+
+                buffer.write_qname(host)?;
+
+                let size = buffer.pos() - (pos + 2);
+                buffer.set_u16(pos, size as u16)?;
+            }
+            DnsRecord::CNAME {
+                ref domain,
+                ref host,
+                ttl,
+            } => {
+                buffer.write_qname(domain)?;
+                buffer.write_u16(QueryType::CNAME.to_num())?;
+                buffer.write_u16(1)?;
+                buffer.write_u32(ttl)?;
+
+                let pos = buffer.pos();
+                buffer.write_u16(0)?;
+
+                buffer.write_qname(host)?;
+
+                let size = buffer.pos() - (pos + 2);
+                buffer.set_u16(pos, size as u16)?;
+            }
+            DnsRecord::MX {
+                ref domain,
+                priority,
+                ref host,
+                ttl,
+            } => {
+                buffer.write_qname(domain)?;
+                buffer.write_u16(QueryType::MX.to_num())?;
+                buffer.write_u16(1)?;
+                buffer.write_u32(ttl)?;
+
+                let pos = buffer.pos();
+                buffer.write_u16(0)?;
+
+                buffer.write_u16(priority)?;
+                buffer.write_qname(host)?;
+
+                let size = buffer.pos() - (pos + 2);
+                buffer.set_u16(pos, size as u16)?;
+            }
+            DnsRecord::AAAA {
+                ref domain,
+                ref addr,
+                ttl,
+            } => {
+                buffer.write_qname(domain)?;
+                buffer.write_u16(QueryType::AAAA.to_num())?;
+                buffer.write_u16(1)?;
+                buffer.write_u32(ttl)?;
+                buffer.write_u16(16)?;
+
+                for octet in &addr.segments() {
+                    buffer.write_u16(*octet)?;
+                }
             }
             DnsRecord::UNKNOWN { .. } => {
                 println!("Skipping record: {:?}", self);

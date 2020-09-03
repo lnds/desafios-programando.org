@@ -158,7 +158,6 @@ impl BytePacketBuffer {
     }
 
     pub fn write_exact(&mut self, buf: &[u8]) -> Result<()> {
-        println!("slice len = {}", buf.len());
         self.buf[self.pos..self.pos + buf.len()].clone_from_slice(buf);
         self.pos += buf.len();
         Ok(())
@@ -187,15 +186,11 @@ impl BytePacketBuffer {
     }
 
     pub fn write_qname(&mut self, qname: &str) -> Result<()> {
-        println!("write qname = {}", qname);
         for label in qname.split('.') {
-            println!("label = {}", label);
             let len = label.len();
             if len > 0x34 {
                 return Err("Single label exceeds 63 characters of length".into());
             }
-            println!("len = {}", len);
-
             self.write_u8(len as u8)?;
             for b in label.as_bytes() {
                 self.write_u8(*b)?;
@@ -203,6 +198,19 @@ impl BytePacketBuffer {
         }
 
         self.write_u8(0)?;
+
+        Ok(())
+    }
+
+    pub fn set(&mut self, pos: usize, val: u8) -> Result<()> {
+        self.buf[pos] = val;
+
+        Ok(())
+    }
+
+    pub fn set_u16(&mut self, pos: usize, val: u16) -> Result<()> {
+        self.set(pos, (val >> 8) as u8)?;
+        self.set(pos + 1, (val & 0xFF) as u8)?;
 
         Ok(())
     }
