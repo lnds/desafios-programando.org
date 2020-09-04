@@ -38,22 +38,17 @@ fn handle_query(socket: &UdpSocket) -> Result<()> {
 
     // In the normal case, exactly one question is present
     if let Some(question) = request.questions.pop() {
-        println!("Received query: {:?}", question);
-
         if let Ok(result) = recursive_lookup(&question.name, question.qtype) {
             packet.questions.push(question);
             packet.header.rescode = result.header.rescode;
 
             for rec in result.answers {
-                println!("Answer: {:?}", rec);
                 packet.answers.push(rec);
             }
             for rec in result.authorities {
-                println!("Authority: {:?}", rec);
                 packet.authorities.push(rec);
             }
             for rec in result.resources {
-                println!("Resource: {:?}", rec);
                 packet.resources.push(rec);
             }
         } else {
@@ -152,5 +147,6 @@ fn lookup(qname: &str, qtype: QueryType, server: (Ipv4Addr, u16)) -> Result<DnsP
 
     socket.recv_from(&mut res_buffer.buf)?;
 
-    DnsPacket::read(&mut res_buffer)
+    let result = DnsPacket::read(&mut res_buffer);
+    result
 }
