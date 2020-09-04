@@ -17,7 +17,7 @@ DnsQuestion = recordclass('dns_question', ['name', 'qtype'])
 
 DnsRecord_A = recordclass('dns_record_a', ['domain', 'addr', 'ttl'])
 DnsRecord_AAAA = recordclass('dns_record_aaaa', ['domain', 'addr', 'ttl'])
-DnsRecord_CNAME = recordclass('dns_record_cname', ['domain', 'addr', 'ttl'])
+DnsRecord_CNAME = recordclass('dns_record_cname', ['domain', 'host', 'ttl'])
 DnsRecord_NS = recordclass('dns_record_ns', ['domain', 'host', 'ttl'])
 DnsRecord_MX = recordclass('dns_record_mx', ['domain', 'addr', 'ttl', 'priority'])
 DnsRecord_UNKNOWN = recordclass('dns_record_unknown', ['domain', 'qtype', 'data_len', 'ttl'])
@@ -69,8 +69,6 @@ def handle_query(sock):
         packet.header.rescode = FORMERR
 
     out_buf = write_packet(packet)
-    print("=> packet = ", packet)
-    print("=> buffer = ", out_buf)
     sock.sendto(out_buf, address)
 
 
@@ -164,6 +162,7 @@ def write_packet(packet):
     buf.extend(pack('>u16', header.answers))
     buf.extend(pack('>u16', header.authoritative_entries))
     buf.extend(pack('>u16', header.resource_entries))
+
     for q in packet.questions:
         buf.extend(write_question(q))
 
@@ -230,7 +229,8 @@ def write_dns_record(record):
         buf.extend(write_qname(record.host))
         pos_1 = len(buf)
         size = pos_1 - (pos+2)
-        buf.extend(pack(">u16", size))
+        buf[pos] = size >> 8
+        buf[pos+1] = (size & 0xFF)
         return buf
     elif isinstance(record, DnsRecord_CNAME):
         buf.extend(write_qname(record.domain))
@@ -242,7 +242,8 @@ def write_dns_record(record):
         buf.extend(write_qname(record.host))
         pos_1 = len(buf)
         size = pos_1 - (pos+2)
-        buf.extend(pack(">u16", size))
+        buf[pos] = size >> 8
+        buf[pos+1] = (size & 0xFF)
         return buf
     elif isinstance(record, DnsRecord_MX):
         buf.extend(write_qname(record.domain))
@@ -255,7 +256,8 @@ def write_dns_record(record):
         buf.extend(write_qname(record.host))
         pos_1 = len(buf)
         size = pos_1 - (pos+2)
-        buf.extend(pack(">u16", size))
+        buf[pos] = size >> 8
+        buf[pos+1] = (size & 0xFF)
         return buf
     else:
         print("Skipping record: {:?}", record)
@@ -339,7 +341,7 @@ def parse_dns_record(pos, buf):
         return pos, DnsRecord_NS(domain, host, ttl)
     elif qtype == CNAME:
         pos, host = parse_qname(pos, buf)
-        return pos, DnsRecord_NS(domain, host, ttl)
+        return pos, DnsRecord_CNAME(domain, host, ttl)
     elif qtype == MX:
         pos, priority = parse_u16(pos, buf)
         pos, host = parse_qname(pos, buf)
