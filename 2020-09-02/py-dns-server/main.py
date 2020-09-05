@@ -57,12 +57,9 @@ def handle_query(sock):
         if result:
             packet.questions.append(question)
             packet.header.rescode = result.header.rescode
-            for rec in result.answers:
-                packet.answers.append(rec)
-            for rec in result.authorities:
-                packet.authorities.append(rec)
-            for rec in result.resources:
-                packet.resources.append(rec)
+            packet.answers = result.answers
+            packet.authorities = result.authorities
+            packet.resources = result.resources
         else:
             packet.header.rescode = SERVFAIL
     else:
