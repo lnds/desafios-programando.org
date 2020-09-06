@@ -2,14 +2,26 @@ import ipaddress
 import socket
 
 from bitstruct import *
-from recordclass import recordclass
+from recordclass import recordclass, RecordClass
 
 buffer_size = 512
 
-DnsHeader = recordclass('dns_header', ['id', 'response', 'opcode', 'authoritative_answer',
-                                       'truncated_message', 'recursion_desired', 'recursion_available',
-                                       'z', 'checking_disabled', 'authed_data', 'rescode',
-                                       'questions', 'answers', 'authoritative_entries', 'resource_entries'])
+class DnsHeader(RecordClass):
+    id: int
+    response: int
+    opcode: int
+    authoritative_answer: int
+    truncated_message: int
+    recursion_desired: int
+    recursion_available: int
+    z: int
+    checking_disabled: int
+    authed_data: int
+    rescode: int
+    questions: int
+    answers: int
+    authoritative_entries: int
+    resource_entries: int
 
 HEADER_BINARY_STRUCT = ">u16>u1>u4>u1>u1>u1>u1>u1>u1>u1>u4>u16>u16>u16>u16"
 
@@ -91,7 +103,7 @@ def recursive_lookup(qname, qtype):
         if not new_ns_name:
             return response
 
-        recursive_response = recursive_lookup(new_ns, A)
+        recursive_response = recursive_lookup(new_ns_name, A)
 
         new_ns = get_random_a(recursive_response)
         if new_ns:
@@ -134,7 +146,7 @@ def get_resolved_ns(dns_packet, qname):
 def get_unresolved_ns(dns_packet, qname):
     ns = get_ns(dns_packet, qname)
     if ns:
-        return [n.addr for n in ns][0]
+        return [host for (domain, host) in ns][0]
     return None
 
 
