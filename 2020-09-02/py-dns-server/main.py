@@ -2,7 +2,7 @@ import ipaddress
 import socket
 
 from bitstruct import *
-from recordclass import recordclass, RecordClass
+from recordclass import RecordClass
 
 buffer_size = 512
 
@@ -23,18 +23,60 @@ class DnsHeader(RecordClass):
     authoritative_entries: int
     resource_entries: int
 
+
 HEADER_BINARY_STRUCT = ">u16>u1>u4>u1>u1>u1>u1>u1>u1>u1>u4>u16>u16>u16>u16"
 
-DnsQuestion = recordclass('dns_question', ['name', 'qtype'])
 
-DnsRecord_A = recordclass('dns_record_a', ['domain', 'addr', 'ttl'])
-DnsRecord_AAAA = recordclass('dns_record_aaaa', ['domain', 'addr', 'ttl'])
-DnsRecord_CNAME = recordclass('dns_record_cname', ['domain', 'host', 'ttl'])
-DnsRecord_NS = recordclass('dns_record_ns', ['domain', 'host', 'ttl'])
-DnsRecord_MX = recordclass('dns_record_mx', ['domain', 'addr', 'ttl', 'priority'])
-DnsRecord_UNKNOWN = recordclass('dns_record_unknown', ['domain', 'qtype', 'data_len', 'ttl'])
+class DnsQuestion(RecordClass):
+    name: str
+    qtype: int
 
-DnsPacket = recordclass('dns_packet', ['header', 'questions', 'answers', 'authorities', 'resources'])
+
+class DnsRecord_A(RecordClass):
+    domain: str
+    addr: str
+    ttl: int
+
+
+class DnsRecord_AAAA(RecordClass):
+    domain: str
+    addr: str
+    ttl: int
+
+
+class DnsRecord_CNAME(RecordClass):
+    domain: str
+    host: str
+    ttl: int
+
+
+class DnsRecord_NS(RecordClass):
+    domain: str
+    host: str
+    ttl: int
+
+
+class DnsRecord_MX(RecordClass):
+    domain: str
+    addr: str
+    ttl: int
+    priority: int
+
+
+class DnsRecord_UNKNOWN(RecordClass):
+    domain: str
+    qtype: int
+    data_len: int
+    ttl: int
+
+
+class DnsPacket(RecordClass):
+    header: DnsHeader
+    questions: list
+    answers: list
+    authorities: list
+    resources: list
+
 
 UNKNOWN = 0
 A = 1
@@ -132,22 +174,18 @@ def get_random_a(dns_packet):
 
 def get_resolved_ns(dns_packet, qname):
     ns = get_ns(dns_packet, qname)
-    if ns:
-        ns2 = []
-        for host in [host for (_, host) in ns]:
-            r = [r.addr for r in dns_packet.resources if isinstance(r, DnsRecord_A) and r.domain == host]
-            for x in r:
-                ns2.append(x)
-        if ns2:
-            return ns2[0]
+    for host in [host for (_, host) in ns]:
+        r = [r.addr for r in dns_packet.resources if isinstance(r, DnsRecord_A) and r.domain == host]
+        if r:
+            return r[0]
     return None
-
 
 def get_unresolved_ns(dns_packet, qname):
     ns = get_ns(dns_packet, qname)
-    if ns:
-        return [host for (domain, host) in ns][0]
-    return None
+    if not ns:
+        return None
+    (_, host) = ns[0]
+    return host
 
 
 def get_ns(dns_packet, qname):
@@ -284,36 +322,26 @@ def parse_packet(buf):
     return DnsPacket(header, questions, answers, authorities, resources)
 
 
-def parse_questions(header, pos, buf):
+def parse_elements(limit, pos, buf, parser):
     result = []
-    for i in range(0, header.questions):
-        pos, question = parse_question(pos, buf)
-        result.append(question)
+    for i in range(0, limit):
+        pos, e = parser(pos, buf)
+        result.append(e)
     return pos, result
+
+def parse_questions(header, pos, buf):
+    return parse_elements(header.questions, pos, buf, parse_question)
 
 
 def parse_answers(header, pos, buf):
-    result = []
-    for i in range(0, header.answers):
-        pos, answer = parse_dns_record(pos, buf)
-        result.append(answer)
-    return pos, result
+    return parse_elements(header.answers, pos, buf, parse_dns_record)
 
 
 def parse_authorities(header, pos, buf):
-    result = []
-    for i in range(0, header.authoritative_entries):
-        pos, authority = parse_dns_record(pos, buf)
-        result.append(authority)
-    return pos, result
-
+    return parse_elements(header.authoritative_entries, pos, buf, parse_dns_record)
 
 def parse_resources(header, pos, buf):
-    result = []
-    for i in range(0, header.resource_entries):
-        pos, resource = parse_dns_record(pos, buf)
-        result.append(resource)
-    return pos, result
+    return parse_elements(header.resource_entries, pos, buf, parse_dns_record)
 
 
 def parse_question(pos, buf):
