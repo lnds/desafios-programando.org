@@ -4,7 +4,6 @@ import socket
 from bitstruct import *
 from recordclass import RecordClass
 
-buffer_size = 512
 
 class DnsHeader(RecordClass):
     id: int
@@ -15,8 +14,6 @@ class DnsHeader(RecordClass):
     recursion_desired: int
     recursion_available: int
     z: int
-    checking_disabled: int
-    authed_data: int
     rescode: int
     questions: int
     answers: int
@@ -24,7 +21,7 @@ class DnsHeader(RecordClass):
     resource_entries: int
 
 
-HEADER_BINARY_STRUCT = ">u16>u1>u4>u1>u1>u1>u1>u1>u1>u1>u4>u16>u16>u16>u16"
+HEADER_BINARY_STRUCT = ">u16>u1>u4>u1>u1>u1>u1>u3>u4>u16>u16>u16>u16"
 
 
 class DnsQuestion(RecordClass):
@@ -100,11 +97,12 @@ def main(host, port):
     while True:
         handle_query(sock)
 
+buffer_size = 512
 
 def handle_query(sock):
-    buf, address = sock.recvfrom(512)
+    buf, address = sock.recvfrom(buffer_size)
     request = parse_packet(buf)
-    packet = DnsPacket(DnsHeader(request.header.id, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0), [], [], [], [])
+    packet = DnsPacket(DnsHeader(request.header.id, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0), [], [], [], [])
     question = request.questions.pop()
     if question:
         result = recursive_lookup(question.name, question.qtype)
@@ -124,9 +122,10 @@ def handle_query(sock):
 
 
 def recursive_lookup(qname, qtype):
+    #  partiremos con a.root-servers.net
     ns = "198.41.0.4"
     while True:
-        print("attemping lookup of {} {} with ns {}".format(qtype, qname, ns))
+        print("intentamos búsqueda de {} {} con el ns {}".format(qtype, qname, ns))
         ns_copy = ns
         server = (str(ns_copy), 53)
         response = lookup(qname, qtype, server)
@@ -157,7 +156,7 @@ def recursive_lookup(qname, qtype):
 def lookup(qname, qtype, server):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # DNS es UDP
     sock.bind(("0.0.0.0", 43210))
-    packet = DnsPacket(DnsHeader(6666, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0), [DnsQuestion(qname, qtype)], [], [],
+    packet = DnsPacket(DnsHeader(6666, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0), [DnsQuestion(qname, qtype)], [], [],
                        [])
     req_buffer = write_packet(packet)
     sock.sendto(req_buffer, server)
@@ -202,9 +201,9 @@ def write_packet(packet):
     buf = bytearray()
     header = packet.header
     buf.extend(pack('>u16', header.id))
-    buf.extend(pack('>u1u4u1u1u1u1u1u1u1u4', header.response, header.opcode, header.authoritative_answer,
+    buf.extend(pack('>u1u4u1u1u1u1u3u4', header.response, header.opcode, header.authoritative_answer,
                     header.truncated_message, header.recursion_desired, header.recursion_available,
-                    header.z, header.checking_disabled, header.authed_data, header.rescode))
+                    header.z, header.rescode))
     buf.extend(pack('>u16', header.questions))
     buf.extend(pack('>u16', header.answers))
     buf.extend(pack('>u16', header.authoritative_entries))
