@@ -1,0 +1,42 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Demo Ajax con Gatos</title>
+        <script>
+            function ajax_get_blob(url, callback) {
+                var req = new XMLHttpRequest();
+                req.onload = function() {
+                    try {
+                        var buffer = new Uint8Array(req.response);
+                        var blob = new Blob([buffer], {type: "image/png"});
+                        var url = URL.createObjectURL(blob);
+                    } catch (err) {
+                        console.log(err.message + " in " + xmlhttp.responseText);
+                        return;
+                    }
+                    callback(url);
+                };
+                req.open("GET", url, true);
+                req.responseType = "arraybuffer";
+                req.send();
+            }
+        </script>
+    </head>
+    <body>
+        <h1>Me pareció haber visto un lindo gatito</h1>
+        <button onclick="load_kitten()">Buscar un gato</button>
+        <div id="cat">
+            <div id="image"></div>
+            <div id="frase"></div>
+        </div>
+        <script>
+            function load_kitten() {
+                ajax_get_blob('https://cataas.com/cat/cute', function(url) {
+                    var html = '<img src="' + url+ '">';
+                    document.getElementById("image").innerHTML = html;
+                    document.getElementById("frase").innerHTML = "<h2>¡Es cierto! ¡Es cierto! ¡He visto un lindo gatito!";
+                });
+            }
+        </script>
+    </body>
+</html>
